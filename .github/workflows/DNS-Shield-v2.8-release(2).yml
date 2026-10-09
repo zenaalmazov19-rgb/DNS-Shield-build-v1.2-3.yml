@@ -153,10 +153,16 @@ jobs:
               s = s[:test_pos] + copy_block + s[test_pos:]
 
           # Проверка сохраняет выбранного в начале провайдера и не выдаёт ложный успех.
-          test_start = s.find("                  test.setOnClickListener(v -> {")
-          selected_host = s.find("                  selectedHost = tv(", test_start)
-          if test_start < 0 or selected_host < 0:
-              raise SystemExit("Не найдены границы обработчика проверки DNS.")
+          # Не привязываемся к точному количеству пробелов: форматирование
+          # исходного Java-кода в разных редакциях может отличаться.
+          test_start = s.find("test.setOnClickListener(v -> {")
+          selected_host = s.find("selectedHost = tv(")
+          if test_start < 0:
+              raise SystemExit("Не найден обработчик кнопки проверки DNS.")
+          if selected_host < test_start:
+              raise SystemExit("Объявление selectedHost расположено раньше обработчика; безопасная замена невозможна.")
+          if selected_host < 0:
+              raise SystemExit("Не найдено объявление selectedHost после обработчика проверки DNS.")
           test_code = """                  test.setOnClickListener(v -> {
                       final int checkedSelection = selected;
                       test.setEnabled(false);
