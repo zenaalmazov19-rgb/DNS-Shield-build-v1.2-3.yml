@@ -1,0 +1,112 @@
+name: DNS Shield APK v2.3 — новый шрифт и интерфейс без VPN-упоминаний
+true:
+  workflow_dispatch: null
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Скачать репозиторий
+      uses: actions/checkout@v4
+    - name: Создать проект DNS Shield 2.3 с новым интерфейсом
+      shell: bash
+      run: "set -e\npython3 - <<'PY'\nfrom pathlib import Path\nimport urllib.request\n\nurl = \"https://raw.githubusercontent.com/zenaalmazov19-rgb/DNS-Shield-build-v1.2-3.yml/main/.github/workflows/DNS-Shield-build-v1.4.yml\"\
+        \nsrc = urllib.request.urlopen(url).read().decode(\"utf-8\")\nlines = src.splitlines()\n\nname_i = next(i for i, line\
+        \ in enumerate(lines)\n              if line.strip() == \"- name: Создать Android-проект DNS Shield\")\nrun_i = next(i\
+        \ for i in range(name_i, len(lines))\n             if lines[i].strip() == \"run: |\")\nend_i = next(i for i in range(run_i\
+        \ + 1, len(lines))\n             if lines[i].startswith(\"      - name:\"))\n\nblock = []\nfor line in lines[run_i\
+        \ + 1:end_i]:\n    block.append(line[10:] if line.startswith(\"          \") else line)\n\nPath(\"/tmp/create_v14.sh\"\
+        ).write_text(\"\\n\".join(block) + \"\\n\", encoding=\"utf-8\")\nprint(\"Исходный проект v1.4 найден.\")\nPY\nbash\
+        \ /tmp/create_v14.sh\n"
+    - name: Обновить приложение до версии 2.3 и убрать упоминания VPN
+      shell: bash
+      run: "set -e\npython3 - <<'PY'\nfrom pathlib import Path\n\ngradle = Path(\"project/app/build.gradle.kts\")\ns = gradle.read_text()\n\
+        s = s.replace(\"versionCode = 2\", \"versionCode = 7\")\ns = s.replace('versionName = \"1.4\"', 'versionName = \"\
+        2.3\"')\ngradle.write_text(s)\n\njava = Path(\"project/app/src/main/java/com/example/dnsshield/MainActivity.java\"\
+        )\ns = java.read_text()\n\ns = s.replace(\n    \"private int selected = 0;\",\n    \"\"\"private int selected = 0;\n\
+        \    private android.content.SharedPreferences prefs;\n    private Button selectedDnsButton;\"\"\"\n)\n\ns = s.replace(\n\
+        \    \"super.onCreate(b);\",\n    \"\"\"super.onCreate(b);\n\n        prefs = getSharedPreferences(\"dns_shield\"\
+        , MODE_PRIVATE);\n        selected = prefs.getInt(\"selected_dns\", 0);\n        if (selected < 0 || selected >= hosts.length)\
+        \ selected = 0;\"\"\"\n)\n\nmarker = 'TextView st = text(\"DNS-блокировка\", 17, Color.rgb(244,255,248), true);'\n\
+        version = \"\"\"TextView version = tv(\"Версия 2.3 • AdGuard по умолчанию\", 12, Color.rgb(112,150,130));\n      \
+        \  root.addView(version, new LinearLayout.LayoutParams(-1, -2));\n        margin(version, 0, 0, 0, 10);\n\n\"\"\"\n\
+        if marker not in s:\n    raise SystemExit(\"Не найден блок статуса v1.4\")\ns = s.replace(marker, version + marker,\
+        \ 1)\n\nmarker = \"Button test = new Button(this);\"\nreset = \"\"\"selectedDnsButton = new Button(this);\n      \
+        \  selectedDnsButton.setText(selectedLabel());\n        selectedDnsButton.setTextSize(14);\n        selectedDnsButton.setTextColor(Color.rgb(244,255,248));\n\
+        \        selectedDnsButton.setAllCaps(false);\n        selectedDnsButton.setBackground(bg(Color.rgb(16,32,25), 18,\
+        \ Color.rgb(37,74,55), 1));\n        root.addView(selectedDnsButton, new LinearLayout.LayoutParams(-1, dp(50)));\n\
+        \        margin(selectedDnsButton, 0, 10, 0, 0);\n\n        selectedDnsButton.setOnClickListener(v -> {\n        \
+        \    selected = 0;\n            prefs.edit().putInt(\"selected_dns\", selected).apply();\n            updateSelection();\n\
+        \        });\n\n\"\"\"\nif marker not in s:\n    raise SystemExit(\"Не найден блок проверки DNS v1.4\")\ns = s.replace(marker,\
+        \ reset + marker, 1)\n\nold = \"card.setOnClickListener(v -> { selected = n; updateSelection(); });\"\nnew = \"\"\"\
+        card.setOnClickListener(v -> {\n            selected = n;\n            prefs.edit().putInt(\"selected_dns\", selected).apply();\n\
+        \            updateSelection();\n        });\"\"\"\nif old not in s:\n    raise SystemExit(\"Не найден обработчик\
+        \ выбора DNS v1.4\")\ns = s.replace(old, new, 1)\n\ns = s.replace(\n    'testResult.setText(\"\U0001F7E2 DNS работает\
+        \ и блокировка рекламы обнаружена.\\\\nПровайдер: \" + host);',\n    'testResult.setText(\"\U0001F7E2 DNS отвечает.\
+        \ Тестовый рекламный домен не разрешён.\\\\nПровайдер: \" + host);'\n)\ns = s.replace(\n    'testResult.setText(\"\
+        \U0001F7E2 DNS работает и фильтрация обнаружена.\\\\nПровайдер: \" + host);',\n    'testResult.setText(\"\U0001F7E2\
+        \ DNS отвечает. Тестовый домен фильтруется.\\\\nПровайдер: \" + host);'\n)\n\nhelper = \"\"\"private String selectedLabel()\
+        \ {\n        if (selected == 1) return \"✓ ADGUARD FAMILY ВЫБРАН\";\n        if (selected == 2) return \"✓ CLOUDFLARE\
+        \ MALWARE ВЫБРАН\";\n        return \"✓ ADGUARD DNS ВЫБРАН\";\n    }\n\n    \"\"\"\nif \"private void updateSelection()\
+        \ {\" not in s:\n    raise SystemExit(\"Не найден метод updateSelection v1.4\")\ns = s.replace(\"private void updateSelection()\
+        \ {\", helper + \"private void updateSelection() {\", 1)\ns = s.replace(\n    'if (selectedHost != null) selectedHost.setText(\"\
+        Выбран: \" + hosts[selected]);',\n    'if (selectedHost != null) selectedHost.setText(\"Выбран: \" + hosts[selected]);\\\
+        n                  if (selectedDnsButton != null) selectedDnsButton.setText(selectedLabel());',\n    1\n)\n\n# Убираем\
+        \ все упоминания VPN с экранов и подсказок.\ns = s.replace('tv(\"Защита DNS без VPN\", 14, Color.rgb(157,176,165))',\n\
+        \              'tv(\"Защита DNS\", 14, Color.rgb(157,176,165))')\ns = s.replace('tv(\"Приложение не использует VpnService\"\
+        , 13, Color.rgb(157,176,165))',\n              'tv(\"Фильтрация через Private DNS\", 13, Color.rgb(157,176,165))')\n\
+        s = s.replace('tv(\"Выберите DNS-провайдера и откройте настройки Private DNS. Ваш основной VPN останется включён.\"\
+        , 13, Color.rgb(157,176,165))',\n              'tv(\"Выберите DNS-провайдера и настройте его в системном меню Private\
+        \ DNS.\", 13, Color.rgb(157,176,165))')\ns = s.replace('\"Важно: если основной VPN перехватывает DNS-запросы, Private\
+        \ DNS может не применяться. Тогда DNS-блокировку нужно включить в самом VPN.\",',\n              '\"Если выбранный\
+        \ DNS не применяется, проверьте системные настройки Private DNS и параметры подключения к сети.\",')\n\n# Округлый\
+        \ шрифт для более современного вида.\ns = s.replace('Typeface.create(\"sans\", bold ? Typeface.BOLD : Typeface.NORMAL)',\n\
+        \              'Typeface.create(\"sans-serif-rounded\", bold ? Typeface.BOLD : Typeface.NORMAL)')\ns = s.replace('open.setTypeface(Typeface.DEFAULT,\
+        \ Typeface.BOLD);',\n              'open.setTypeface(Typeface.create(\"sans-serif-rounded\", Typeface.BOLD));')\n\
+        s = s.replace('test.setTypeface(Typeface.DEFAULT, Typeface.BOLD);',\n              'test.setTypeface(Typeface.create(\"\
+        sans-serif-rounded\", Typeface.BOLD));')\n\n# Новая функция: отправить адрес выбранного DNS в другое приложение.\n\
+        share_marker = '        Button test = new Button(this);'\nshare_code = '        Button share = new Button(this);\\\
+        n        share.setText(\"Поделиться DNS-хостнеймом\");\\n        share.setTextSize(14);\\n        share.setTextColor(Color.rgb(244,255,248));\\\
+        n        share.setAllCaps(false);\\n        share.setTypeface(Typeface.create(\"sans-serif-rounded\", Typeface.NORMAL));\\\
+        n        share.setBackground(bg(Color.rgb(16,32,25), 18, Color.rgb(37,74,55), 1));\\n        root.addView(share, new\
+        \ LinearLayout.LayoutParams(-1, dp(50)));\\n        margin(share, 0, 8, 0, 0);\\n        share.setOnClickListener(v\
+        \ -> {\\n            Intent send = new Intent(Intent.ACTION_SEND);\\n            send.setType(\"text/plain\");\\n\
+        \            send.putExtra(Intent.EXTRA_TEXT, hosts[selected]);\\n            startActivity(Intent.createChooser(send,\
+        \ \"Поделиться DNS-хостнеймом\"));\\n        });\\n\\n'\nif share_marker not in s:\n    raise SystemExit(\"Не найдено\
+        \ место для кнопки «Поделиться DNS-хостнеймом»\")\ns = s.replace(share_marker, share_code + share_marker, 1)\n\njava.write_text(s)\n\
+        print(\"DNS Shield 2.3 подготовлен: VPN-упоминания убраны, шрифт обновлён, добавлена отправка DNS.\")\njava.write_text(s)\n\
+        print(\"DNS Shield 2.3 подготовлен.\")\nPY\n"
+    - name: Установить JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Проверить Android SDK
+      shell: bash
+      run: "set -e\nif [ -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then\n  SDKMANAGER=\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"\
+        \nelse\n  SDKMANAGER=\"$(command -v sdkmanager)\"\nfi\nyes | \"$SDKMANAGER\" --licenses >/dev/null 2>&1 || true\n\
+        if [ ! -d \"$ANDROID_HOME/platforms/android-35\" ]; then\n  \"$SDKMANAGER\" \"platforms;android-35\" \"build-tools;35.0.0\"\
+        \ \"platform-tools\"\nfi\n"
+    - name: Установить Gradle 8.7
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: '8.7'
+    - name: Собрать APK
+      working-directory: project
+      shell: bash
+      run: 'set -e
+
+        gradle clean assembleDebug --no-daemon --stacktrace
+
+        '
+    - name: Подготовить APK
+      run: 'cp project/app/build/outputs/apk/debug/app-debug.apk DNS-Shield-v2.3.apk
+
+        ls -lh DNS-Shield-v2.3.apk
+
+        '
+    - name: Загрузить APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: DNS-Shield-v2.3
+        path: DNS-Shield-v2.3.apk
+        if-no-files-found: error
