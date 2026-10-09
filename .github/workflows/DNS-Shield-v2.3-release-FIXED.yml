@@ -60,7 +60,9 @@ jobs:
           s = code_pattern.sub(r"\g<1>7\g<2>", s, count=1)
           s = name_pattern.sub(r'\g<1>"2.3"\g<2>', s, count=1)
 
-          release_block = """    signingConfigs {
+          if "    buildTypes {" not in s:
+              raise SystemExit("Не найден блок buildTypes в Gradle-файле.")
+          signing_block = """    signingConfigs {
                   create("release") {
                       storeFile = file("../dns-shield-release.jks")
                       storePassword = System.getenv("DNS_STORE_PASSWORD")
@@ -71,14 +73,11 @@ jobs:
                   }
               }
 
-              buildTypes {
-                  release {
-                      signingConfig = signingConfigs.getByName("release")
           """
-          if "    buildTypes {" not in s:
-              raise SystemExit("Не найден блок buildTypes в Gradle-файле.")
-          s = s.replace("    buildTypes {\n        release {",
-                        release_block, 1)
+          s = s.replace("    buildTypes {", signing_block + "    buildTypes {", 1)
+          if "        release {" not in s:
+              raise SystemExit("Не найден блок release внутри buildTypes.")
+          s = s.replace("        release {", "        release {\n            signingConfig = signingConfigs.getByName(\"release\")", 1)
           gradle.write_text(s, encoding="utf-8")
           print("Версия 2.3 и конфигурация подписи подготовлены.")
           PY
