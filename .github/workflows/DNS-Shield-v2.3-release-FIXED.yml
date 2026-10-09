@@ -48,8 +48,8 @@ jobs:
 
           gradle = Path("project/app/build.gradle.kts")
           s = gradle.read_text(encoding="utf-8")
-          code_pattern = re.compile(r"(?m)^(\s*versionCode\s*=\s*)\d+(\s*(?://.*)?$)")
-          name_pattern = re.compile(r'(?m)^(\s*versionName\s*=\s*)"[^"\n]+("\s*(?://.*)?$)')
+          code_pattern = re.compile(r"(?m)^([ \t]*versionCode[ \t]*=[ \t]*)\d+([ \t]*(?://.*)?$)")
+          name_pattern = re.compile(r'(?m)^([ \t]*versionName[ \t]*=[ \t]*)"[^"\n]+"([ \t]*(?://.*)?$)')
           if not code_pattern.search(s):
               raise SystemExit("В app/build.gradle.kts не найдено поле versionCode.")
           if not name_pattern.search(s):
