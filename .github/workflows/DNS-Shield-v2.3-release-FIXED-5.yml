@@ -1,0 +1,315 @@
+name: DNS Shield APK v2.3 RELEASE — RuStore
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Скачать репозиторий
+        uses: actions/checkout@v4
+
+      - name: Создать проект на основе v1.4
+        shell: bash
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          import urllib.request
+
+          url = "https://raw.githubusercontent.com/zenaalmazov19-rgb/DNS-Shield-build-v1.2-3.yml/main/.github/workflows/DNS-Shield-build-v1.4.yml"
+          src = urllib.request.urlopen(url).read().decode("utf-8")
+          lines = src.splitlines()
+
+          name_i = next(i for i, line in enumerate(lines)
+                        if line.strip() == "- name: Создать Android-проект DNS Shield")
+          run_i = next(i for i in range(name_i, len(lines))
+                       if lines[i].strip() == "run: |")
+          end_i = next(i for i in range(run_i + 1, len(lines))
+                       if lines[i].startswith("      - name:"))
+
+          block = []
+          for line in lines[run_i + 1:end_i]:
+              block.append(line[10:] if line.startswith("          ") else line)
+
+          Path("/tmp/create_v14.sh").write_text("\n".join(block) + "\n", encoding="utf-8")
+          print("Исходный проект v1.4 найден.")
+          PY
+          bash /tmp/create_v14.sh
+
+      - name: Обновить приложение до версии 2.3
+        shell: bash
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path("project/app/build.gradle.kts")
+          s = gradle.read_text()
+          s = s.replace("versionCode = 2", "versionCode = 7")
+          s = s.replace('versionName = "1.4"', 'versionName = "2.3"')
+          if 'versionCode = 7' not in s or 'versionName = "2.3"' not in s:
+              raise SystemExit("Не удалось установить версию 2.3 в Gradle")
+          gradle.write_text(s)
+
+          java = Path("project/app/src/main/java/com/example/dnsshield/MainActivity.java")
+          s = java.read_text()
+
+          s = s.replace(
+              "private int selected = 0;",
+              """private int selected = 0;
+              private android.content.SharedPreferences prefs;
+              private Button selectedDnsButton;"""
+          )
+
+          s = s.replace(
+              "super.onCreate(b);",
+              """super.onCreate(b);
+
+                  prefs = getSharedPreferences("dns_shield", MODE_PRIVATE);
+                  selected = prefs.getInt("selected_dns", 0);
+                  if (selected < 0 || selected >= hosts.length) selected = 0;"""
+          )
+
+          marker = 'TextView st = text("DNS-блокировка", 17, Color.rgb(244,255,248), true);'
+          version = """TextView version = tv("Версия 2.3 • AdGuard DNS по умолчанию", 12, Color.rgb(112,150,130));
+                  root.addView(version, new LinearLayout.LayoutParams(-1, -2));
+                  margin(version, 0, 0, 0, 10);
+
+          """
+          if marker not in s:
+              raise SystemExit("Не найден блок статуса v1.4")
+          s = s.replace(marker, version + marker, 1)
+
+          marker = "Button test = new Button(this);"
+          reset = """selectedDnsButton = new Button(this);
+                  selectedDnsButton.setText(selectedLabel());
+                  selectedDnsButton.setTextSize(14);
+                  selectedDnsButton.setTextColor(Color.rgb(244,255,248));
+                  selectedDnsButton.setAllCaps(false);
+                  selectedDnsButton.setBackground(bg(Color.rgb(16,32,25), 18, Color.rgb(37,74,55), 1));
+                  root.addView(selectedDnsButton, new LinearLayout.LayoutParams(-1, dp(50)));
+                  margin(selectedDnsButton, 0, 10, 0, 0);
+
+                  selectedDnsButton.setOnClickListener(v -> {
+                      selected = 0;
+                      prefs.edit().putInt("selected_dns", selected).apply();
+                      updateSelection();
+                  });
+
+          """
+          if marker not in s:
+              raise SystemExit("Не найден блок проверки DNS v1.4")
+          s = s.replace(marker, reset + marker, 1)
+
+          old = "card.setOnClickListener(v -> { selected = n; updateSelection(); });"
+          new = """card.setOnClickListener(v -> {
+                      selected = n;
+                      prefs.edit().putInt("selected_dns", selected).apply();
+                      updateSelection();
+                  });"""
+          if old not in s:
+              raise SystemExit("Не найден обработчик выбора DNS v1.4")
+          s = s.replace(old, new, 1)
+
+          s = s.replace(
+              'testResult.setText("🟢 DNS работает и блокировка рекламы обнаружена.\\nПровайдер: " + host);',
+              'testResult.setText("🟢 DNS отвечает. Тестовый рекламный домен не разрешён.\\nПровайдер: " + host);'
+          )
+          s = s.replace(
+              'testResult.setText("🟢 DNS работает и фильтрация обнаружена.\\nПровайдер: " + host);',
+              'testResult.setText("🟢 DNS отвечает. Тестовый домен фильтруется.\\nПровайдер: " + host);'
+          )
+
+          # Убираем слово VPN из пользовательского интерфейса.
+          s = s.replace("VPN", "подключение к сети")
+          s = s.replace("VpnService", "служба сети")
+          # Более аккуратная типографика.
+          s = s.replace(
+              't.setTypeface(Typeface.create("sans", bold ? Typeface.BOLD : Typeface.NORMAL));\n        return t;',
+              't.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));\n        t.setIncludeFontPadding(false);\n        t.setLineSpacing(0f, 1.04f);\n        return t;',
+              1
+          )
+          # Короткий совет под выбранным DNS, если соответствующий блок существует.
+          tip_marker = 'selectedHost = tv("", 13, Color.rgb(157,176,165));\n        root.addView(selectedHost, new LinearLayout.LayoutParams(-1, -2));\n        margin(selectedHost, 4, 8, 0, 0);'
+          tip_new = 'selectedHost = tv("", 13, Color.rgb(157,176,165));\n        root.addView(selectedHost, new LinearLayout.LayoutParams(-1, -2));\n        margin(selectedHost, 4, 4, 0, 0);\n        TextView tip = tv("Совет: AdGuard DNS блокирует рекламу и многие трекеры.", 12, Color.rgb(112,150,130));\n        root.addView(tip, new LinearLayout.LayoutParams(-1, -2));\n        margin(tip, 0, 0, 0, 12);'
+          if tip_marker in s:
+              s = s.replace(tip_marker, tip_new, 1)
+
+          helper = """private String selectedLabel() {
+                  if (selected == 1) return "✓ ADGUARD FAMILY ВЫБРАН";
+                  if (selected == 2) return "✓ CLOUDFLARE MALWARE ВЫБРАН";
+                  return "✓ ADGUARD DNS ВЫБРАН";
+              }
+
+              """
+          if "private void updateSelection() {" not in s:
+              raise SystemExit("Не найден метод updateSelection v1.4")
+          s = s.replace("private void updateSelection() {", helper + "private void updateSelection() {", 1)
+          s = s.replace(
+              'if (selectedHost != null) selectedHost.setText("Выбран: " + hosts[selected]);',
+              'if (selectedHost != null) selectedHost.setText("Выбран: " + hosts[selected]);\n                  if (selectedDnsButton != null) selectedDnsButton.setText(selectedLabel());',
+              1
+          )
+
+          required = [
+              "private android.content.SharedPreferences prefs;",
+              "private Button selectedDnsButton;",
+              "private String selectedLabel()",
+              'Версия 2.3 • AdGuard DNS по умолчанию',
+              "setIncludeFontPadding(false)"
+          ]
+          missing = [item for item in required if item not in s]
+          if missing:
+              raise SystemExit("Не применены обязательные изменения Java: " + ", ".join(missing))
+          if "VPN" in s or "VpnService" in s:
+              raise SystemExit("В интерфейсном коде осталось упоминание VPN")
+          java.write_text(s)
+          print("DNS Shield 2.3 подготовлен.")
+          PY
+
+      - name: Установить JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Проверить секреты подписи
+        shell: bash
+        env:
+          DNS_RELEASE_KEY_BASE64: ${{ secrets.DNS_RELEASE_KEY_BASE64 }}
+          DNS_STORE_PASSWORD: ${{ secrets.DNS_STORE_PASSWORD }}
+          DNS_KEY_PASSWORD: ${{ secrets.DNS_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$DNS_RELEASE_KEY_BASE64" || { echo "Не задан DNS_RELEASE_KEY_BASE64"; exit 1; }
+          test -n "$DNS_STORE_PASSWORD" || { echo "Не задан DNS_STORE_PASSWORD"; exit 1; }
+          test -n "$DNS_KEY_PASSWORD" || { echo "Не задан DNS_KEY_PASSWORD"; exit 1; }
+
+      - name: Восстановить постоянный ключ подписи
+        shell: bash
+        env:
+          DNS_RELEASE_KEY_BASE64: ${{ secrets.DNS_RELEASE_KEY_BASE64 }}
+          DNS_STORE_PASSWORD: ${{ secrets.DNS_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$DNS_RELEASE_KEY_BASE64" | base64 --decode > project/dns-shield-release.jks
+          chmod 600 project/dns-shield-release.jks
+          keytool -list -keystore project/dns-shield-release.jks -storepass "$DNS_STORE_PASSWORD" -alias dns-shield >/dev/null
+          echo "Постоянный ключ подписи проверен."
+
+      - name: Настроить подпись Release
+        shell: bash
+        env:
+          DNS_STORE_PASSWORD: ${{ secrets.DNS_STORE_PASSWORD }}
+          DNS_KEY_PASSWORD: ${{ secrets.DNS_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("project/app/build.gradle.kts")
+          s = p.read_text()
+
+          if "signingConfigs" not in s:
+              marker = "    buildTypes {"
+              if marker not in s:
+                  raise SystemExit("Не найден блок buildTypes в build.gradle.kts")
+              signing = '''    signingConfigs {
+                  create("release") {
+                      storeFile = file("../dns-shield-release.jks")
+                      storePassword = System.getenv("DNS_STORE_PASSWORD")
+                      keyAlias = "dns-shield"
+                      keyPassword = System.getenv("DNS_KEY_PASSWORD")
+                  }
+              }
+
+          '''
+              s = s.replace(marker, signing + marker, 1)
+
+          # Найти блок buildTypes и проверить, есть ли в нём release.
+          marker = "    buildTypes {"
+          pos = s.find(marker)
+          if pos < 0:
+              raise SystemExit("Не найден блок buildTypes")
+          open_brace = s.find("{", pos)
+          depth = 1
+          i = open_brace + 1
+          while i < len(s) and depth:
+              if s[i] == "{":
+                  depth += 1
+              elif s[i] == "}":
+                  depth -= 1
+              i += 1
+          if depth != 0:
+              raise SystemExit("Блок buildTypes повреждён")
+          block = s[open_brace + 1:i - 1]
+          release_match = re.search(r'(?m)^\s*release\s*\{', block)
+          if release_match:
+              rel_open = open_brace + 1 + release_match.end() - 1
+              depth = 1
+              j = rel_open + 1
+              while j < len(s) and depth:
+                  if s[j] == "{":
+                      depth += 1
+                  elif s[j] == "}":
+                      depth -= 1
+                  j += 1
+              release_body = s[rel_open + 1:j - 1]
+              if "signingConfig" not in release_body:
+                  s = s[:rel_open + 1] + '\n            signingConfig = signingConfigs.getByName("release")' + s[rel_open + 1:]
+          else:
+              insert_at = open_brace + 1
+              s = s[:insert_at] + '\n        release {\n            isMinifyEnabled = false\n            signingConfig = signingConfigs.getByName("release")\n        }\n' + s[insert_at:]
+
+          p.write_text(s)
+          print("Подпись Release настроена.")
+          PY
+
+      - name: Проверить Android SDK
+        shell: bash
+        run: |
+          set -e
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          fi
+
+      - name: Установить Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Собрать APK
+        working-directory: project
+        shell: bash
+        run: |
+          set -e
+          gradle clean assembleRelease --no-daemon --stacktrace
+
+      - name: Проверить подпись APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs project/app/build/outputs/apk/release/app-release.apk
+
+      - name: Подготовить APK
+        run: |
+          cp project/app/build/outputs/apk/release/app-release.apk DNS-Shield-v2.3-release.apk
+          ls -lh DNS-Shield-v2.3-release.apk
+
+      - name: Загрузить APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNS-Shield-v2.3-release
+          path: DNS-Shield-v2.3-release.apk
+          if-no-files-found: error
