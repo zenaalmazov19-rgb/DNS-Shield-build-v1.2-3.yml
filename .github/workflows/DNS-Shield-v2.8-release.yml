@@ -1,4 +1,4 @@
-name: DNS Shield APK v2.8 RELEASE — диагностика и удобство
+name: DNS Shield APK v2.8 RELEASE — цветовой статус DNS
 
 on:
   workflow_dispatch:
@@ -53,7 +53,7 @@ jobs:
               'Выберите DNS-провайдера и откройте настройки Private DNS. Ваш основной VPN останется включён.': 'Выберите DNS-провайдера и откройте настройки Private DNS. Выбранный хостнейм можно скопировать кнопкой ниже.',
               'Важно: если основной VPN перехватывает DNS-запросы, Private DNS может не применяться. Тогда DNS-блокировку нужно включить в самом VPN.': 'Важно: результат фильтрации зависит от настроек сети и выбранного DNS-провайдера.',
               'Возможно, DNS перехватывает VPN или выбран другой DNS.': 'Проверьте выбранный DNS-провайдер и настройки Private DNS.',
-              'Версия 2.2 • без VPN • AdGuard по умолчанию': 'Версия 2.8 • помощник настройки',
+              'Версия 2.2 • без VPN • AdGuard по умолчанию': 'Версия 2.8 • диагностика DNS',
               'Typeface.create("sans", bold ? Typeface.BOLD : Typeface.NORMAL)': 'Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL)',
               'Typeface.create("sans", Typeface.NORMAL)': 'Typeface.create("sans-serif", Typeface.NORMAL)',
           }
@@ -92,17 +92,70 @@ jobs:
           print("Интерфейс обновлён: шрифт, формулировки и помощник настройки добавлены.")
           PY
 
-      - name: Проверить интерфейс на упоминания VPN
+      - name: Добавить достоверный светофор статуса DNS
         shell: bash
         run: |
           set -euo pipefail
-          JAVA="project/app/src/main/java/com/example/dnsshield/MainActivity.java"
-          test -f "$JAVA"
-          if grep -Ein 'VPN|VpnService' "$JAVA"; then
-            echo "В интерфейсе или исходнике осталось упоминание VPN. Сборка остановлена для проверки."
-            exit 1
-          fi
-          echo "Проверка пройдена: упоминаний VPN/VpnService в MainActivity нет."
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          java = Path("project/app/src/main/java/com/example/dnsshield/MainActivity.java")
+          s = java.read_text(encoding="utf-8")
+
+          # The header indicator must start neutral: no DNS test has run yet.
+          old = 'TextView badge = text("●", 22, Color.rgb(85,227,154), true);'
+          new = 'TextView badge = text("●", 22, Color.rgb(180,190,185), true);'
+          if old not in s:
+              raise SystemExit("Не найден исходный индикатор badge; остановка без изменения APK.")
+          s = s.replace(old, new, 1)
+
+          # Bind the badge to the test callback so it changes only after a completed check.
+          old_result = 'TextView testResult = tv("Нажмите кнопку для проверки подключения DNS.", 13, Color.rgb(157,176,165));'
+          new_result = old_result + '
+                  badge.setContentDescription("Статус DNS: проверка ещё не выполнялась");'
+          if old_result not in s:
+              raise SystemExit("Не найден текст начального результата DNS.")
+          s = s.replace(old_result, new_result, 1)
+
+          # Update status dot and result color in each outcome branch. The actual test remains unchanged.
+          replacements = [
+              ('testResult.setText("🔴 DNS не отвечает. Проверьте Private DNS и подключение к интернету.");',
+               'testResult.setText("🔴 DNS не отвечает. Проверьте Private DNS и подключение к интернету.");
+                                  testResult.setTextColor(Color.rgb(255,100,100));
+                                  badge.setTextColor(Color.rgb(255,70,70));
+                                  badge.setContentDescription("Статус DNS: ошибка");'),
+              ('testResult.setText("🟢 DNS отвечает. Тестовый рекламный домен не разрешён.\nПровайдер: " + host);',
+               'testResult.setText("🟢 DNS отвечает. Тестовый рекламный домен не разрешён.\nПровайдер: " + host);
+                                  testResult.setTextColor(Color.rgb(85,227,154));
+                                  badge.setTextColor(Color.rgb(85,227,154));
+                                  badge.setContentDescription("Статус DNS: проверка пройдена");'),
+              ('testResult.setText("🟢 DNS отвечает. Тестовый домен фильтруется.\nПровайдер: " + host);',
+               'testResult.setText("🟢 DNS отвечает. Тестовый домен фильтруется.\nПровайдер: " + host);
+                                  testResult.setTextColor(Color.rgb(85,227,154));
+                                  badge.setTextColor(Color.rgb(85,227,154));
+                                  badge.setContentDescription("Статус DNS: проверка пройдена");'),
+              ('testResult.setText("🟢 DNS отвечает.\nПровайдер: " + host + "\nCloudflare Malware не обязан блокировать рекламу.");',
+               'testResult.setText("🟡 DNS отвечает.\nПровайдер: " + host + "\nЭтот профиль проверяет вредоносные домены, а не рекламу.");
+                                  testResult.setTextColor(Color.rgb(255,205,70));
+                                  badge.setTextColor(Color.rgb(255,205,70));
+                                  badge.setContentDescription("Статус DNS: DNS отвечает, фильтрация рекламы не проверяется");'),
+              ('testResult.setText("🟡 DNS отвечает, но рекламный тест не заблокирован.\nПроверьте выбранный DNS-провайдер и настройки Private DNS.");',
+               'testResult.setText("🟡 DNS отвечает, но рекламный тест не заблокирован.\nПроверьте выбранный DNS-провайдер и настройки Private DNS.");
+                                  testResult.setTextColor(Color.rgb(255,205,70));
+                                  badge.setTextColor(Color.rgb(255,205,70));
+                                  badge.setContentDescription("Статус DNS: требуется проверка настроек");')
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit("Не найдена ожидаемая ветка диагностики: " + old[:70])
+              s = s.replace(old, new, 1)
+
+          # Avoid mentioning VPN anywhere in visible app strings.
+          s = s.replace("Возможно, DNS перехватывает VPN или выбран другой DNS.", "Проверьте выбранный DNS-провайдер и настройки Private DNS.")
+          java.write_text(s, encoding="utf-8")
+          print("Светофор добавлен: серый до первой проверки, зелёный при подтверждённом результате, жёлтый при неопределённой фильтрации, красный при ошибке DNS.")
+          PY
 
       - name: Обновить номер версии и настроить Release-подпись
         shell: bash
