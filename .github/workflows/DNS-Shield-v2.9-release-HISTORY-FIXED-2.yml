@@ -240,7 +240,7 @@ jobs:
               insert_at = panel_match.end()
               s = s[:insert_at] + "\n" + panel + s[insert_at:]
 
-          methods = r\'\'\'              private String loadHistory() {
+          methods = r"""              private String loadHistory() {
                   String saved = getSharedPreferences("dns_shield_history", MODE_PRIVATE).getString("entries", "");
                   return saved.isEmpty() ? "Пока нет сохранённых проверок." : saved;
               }
@@ -249,29 +249,29 @@ jobs:
                   android.content.SharedPreferences prefs = getSharedPreferences("dns_shield_history", MODE_PRIVATE);
                   String old = prefs.getString("entries", "");
                   String stamp = new java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(new java.util.Date());
-                  String next = stamp + " — " + entry + "\\n" + old;
-                  String[] lines = next.split("\\n");
+                  String next = stamp + " — " + entry + "\n" + old;
+                  String[] lines = next.split("\n");
                   StringBuilder limited = new StringBuilder();
                   for (int i = 0; i < lines.length && i < 20; i++) {
-                      if (!lines[i].trim().isEmpty()) limited.append(lines[i]).append("\\n");
+                      if (!lines[i].trim().isEmpty()) limited.append(lines[i]).append("\n");
                   }
                   String result = limited.toString().trim();
                   prefs.edit().putString("entries", result).apply();
                   if (historyView != null) historyView.setText(result.isEmpty() ? "Пока нет сохранённых проверок." : result);
               }
 
-          \'\'\'
+          """
           if "private String loadHistory()" not in s:
               # Add methods immediately before MainActivity's final class brace;
               # do not depend on a particular helper method name or indentation.
-              class_end = s.rfind("\\n}")
+              class_end = s.rfind("\n}")
               if class_end < 0:
                   raise SystemExit("Не найден конец класса MainActivity для методов истории.")
-              s = s[:class_end] + "\\n" + methods + s[class_end:]
+              s = s[:class_end] + "\n" + methods + s[class_end:]
 
           save_marker = "                              test.setEnabled(true);"
           save_code = r'''                              if (selected == checkedSelection) {
-                                  addHistory(hosts[checkedSelection] + " — " + testResult.getText().toString().replace("\\n", " "));
+                                  addHistory(hosts[checkedSelection] + " — " + testResult.getText().toString().replace("\n", " "));
                               }
                               test.setEnabled(true);'''
           if "addHistory(hosts[checkedSelection]" not in s:
