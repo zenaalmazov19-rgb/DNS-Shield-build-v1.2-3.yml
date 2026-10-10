@@ -1,71 +1,73 @@
 name: DNS Shield AI Assistant
 
 on:
-workflow_dispatch:
-inputs:
-mode:
-description: "Что нужно сделать"
-required: true
-type: choice
-options:
-- code_task
-- build_error
-task:
-description: "Задание для ИИ или описание ошибки"
-required: true
-type: string
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Что нужно сделать"
+        required: true
+        type: choice
+        options:
+          - code_task
+          - build_error
+      task:
+        description: "Задание для ИИ или описание ошибки"
+        required: true
+        type: string
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-ai-assistant:
-runs-on: ubuntu-latest
-steps:
-- name: Analyze request with OpenAI
-env:
-OPENAI_API_KEY: ${{ secrets.CHATGPT_API_KEY }}
-MODE: ${{ inputs.mode }}
-TASK: ${{ inputs.task }}
-run: |
-set -euo pipefail
+  ai-assistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze request with OpenAI
+        env:
+          OPENAI_API_KEY: ${{ secrets.CHATGPT_API_KEY }}
+          MODE: ${{ inputs.mode }}
+          TASK: ${{ inputs.task }}
+        run: |
+          set -euo pipefail
 
-      if [ -z "$OPENAI_API_KEY" ]; then
-        echo "GitHub Secret CHATGPT_API_KEY is missing." >> "$GITHUB_STEP_SUMMARY"
-        exit 1
-      fi
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "GitHub Secret CHATGPT_API_KEY is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-      if [ "$MODE" = "build_error" ]; then
-        INSTRUCTION="Analyze this Android GitHub Actions build error. Explain the cause and propose a safe fix. Do not claim to have changed files."
-      else
-        INSTRUCTION="Analyze this DNS Shield Android code task. Propose a minimal patch as a unified diff and explain the changes. Do not claim to have changed files."
-      fi
+          if [ "$MODE" = "build_error" ]; then
+            INSTRUCTION="Analyze this Android GitHub Actions build error. Explain the cause and propose a safe fix. Do not claim to have changed files."
+          else
+            INSTRUCTION="Analyze this DNS Shield Android code task. Propose a minimal patch as a unified diff and explain the changes. Do not claim to have changed files."
+          fi
 
-      python3 - <<'PY'
-      import json, os
-      with open("request.json", "w") as f:
-          json.dump({
-              "model": "gpt-4.1-mini",
-              "messages": [
-                  {"role": "system", "content": os.environ["INSTRUCTION"]},
-                  {"role": "user", "content": os.environ["TASK"]}
-              ]
-          }, f)
-      PY
+          export INSTRUCTION
 
-      curl --fail --silent --show-error \
-        https://api.openai.com/v1/chat/completions \
-        -H "Authorization: Bearer $OPENAI_API_KEY" \
-        -H "Content-Type: application/json" \
-        --data @request.json \
-        -o response.json
+          python3 - <<'PY'
+          import json, os
+          with open("request.json", "w") as f:
+              json.dump({
+                  "model": "gpt-4.1-mini",
+                  "messages": [
+                      {"role": "system", "content": os.environ["INSTRUCTION"]},
+                      {"role": "user", "content": os.environ["TASK"]}
+                  ]
+              }, f)
+          PY
 
-      python3 - <<'PY'
-      import json
-      with open("response.json") as f:
-          data = json.load(f)
-      answer = data["choices"][0]["message"]["content"]
-      with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-          f.write("# DNS Shield AI Assistant\n\n")
-          f.write(answer + "\n")
-      PY
+          curl --fail --silent --show-error \
+            https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data @request.json \
+            -o response.json
+
+          python3 - <<'PY'
+          import json, os
+          with open("response.json") as f:
+              data = json.load(f)
+          answer = data["choices"][0]["message"]["content"]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("# DNS Shield AI Assistant\n\n")
+              f.write(answer + "\n")
+          PY
